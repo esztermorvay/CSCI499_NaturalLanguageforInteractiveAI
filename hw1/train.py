@@ -1,15 +1,44 @@
+import json
+
+import numpy as np
 import tqdm
 import torch
 import argparse
 from sklearn.metrics import accuracy_score
+from torch.utils.data import Dataset, DataLoader, TensorDataset
 
+from model import TargetActionIdet
 from utils import (
     get_device,
     preprocess_string,
     build_tokenizer_table,
-    build_output_tables,
+    build_output_tables, encode_data, create_train_val_splits,
 )
 
+
+# class ActionTargetDataset(Dataset):
+#     def __init__(self, sentences, actions, targets):
+#         # self.labels = labels
+#         self.actions = actions
+#         self.targets = targets
+#         self.text = sentences
+#
+#     def __len__(self):
+#         return len(self.labels)
+#
+#
+#     def __getitem__(self, idx):
+#         action = self.actions[idx]
+#         target = self.targets[idx]
+#         text = self.text[idx]
+#         sample = {"Text": text, "Action": action, "Target": target}
+#         return sample
+#
+
+validate_every_n_epochs = 10
+
+minibatch_size = 256
+learning_rate = 0.0001
 
 def setup_dataloader(args):
     """
@@ -23,15 +52,40 @@ def setup_dataloader(args):
     # language instructions and labels. Split the data into
     # train set and validataion set and create respective
     # dataloaders.
+    with open("lang_to_sem_data.json", 'r') as f:
+        all_lines = json.load(f)
 
     # Hint: use the helper functions provided in utils.py
     # ===================================================== #
-    train_loader = None
-    val_loader = None
-    return train_loader, val_loader
+    # Create train/val splits
+    # train_lines, val_lines = create_train_val_splits(all_lines, prop_train=0.8)
+    train_lines = all_lines["train"]
+    val_lines = all_lines["valid_seen"]
+    # Tokenize the training set
+    vocab_to_index, index_to_vocab, length = build_tokenizer_table(train_lines, vocab_size=args.voc_k)
+    actions_to_index, index_to_actions, targets_to_index, index_to_targets = build_output_tables(train_lines)
 
+    # Encode the training and validation set inputs/outputs.
+    train_np_x, train_np_y = encode_data(train_lines, vocab_to_index, length, actions_to_index, targets_to_index)
+    # train_y_weight = np.array([1. / (sum([train_np_y[jdx] == idx for jdx in range(len(train_np_y))]) / len(train_np_y)) for idx in range(len(books_to_index))], dtype=np.float32)
+    train_dataset = TensorDataset(torch.from_numpy(train_np_x), torch.from_numpy(train_np_y))
+    val_np_x, val_np_y = encode_data(val_lines, vocab_to_index, length, actions_to_index, targets_to_index)
+    val_dataset = TensorDataset(torch.from_numpy(val_np_x), torch.from_numpy(val_np_y))
 
-def setup_model(args):
+    # # Get TFIDF weights from training data.
+    # tfidf_ws = get_tfidf_weights(cpb, vocab_to_index, books_to_index)
+
+    # Create data loaders
+    train_loader = DataLoader(train_dataset, shuffle=True, batch_size=minibatch_size)
+    val_loader = DataLoader(val_dataset, shuffle=True, batch_size=minibatch_size)
+
+    # train_dataset = ActionTargetDataset(index_to_vocab, index_to_actions, index_to_targets)
+    # val_dataset = None
+    # train_loader = None
+    # val_loader = None
+    return train_loader, val_loader, (vocab_to_index, index_to_vocab, length, actions_to_index, index_to_actions, targets_to_index, index_to_targets)
+
+def setup_model(args, map, device, embedding_dim):
     """
     return:
         - model: YourOwnModelClass
@@ -39,7 +93,8 @@ def setup_model(args):
     # ================== TODO: CODE HERE ================== #
     # Task: Initialize your model.
     # ===================================================== #
-    model = None
+    vocab_to_index, index_to_vocab, length, actions_to_index, index_to_actions, targets_to_index, index_to_targets = map
+    model = TargetActionIdet(device, len(index_to_vocab), length, len(index_to_actions), len(index_to_targets), embedding_dim)
     return model
 
 
@@ -54,9 +109,10 @@ def setup_optimizer(args, model):
     # Task: Initialize the loss function for action predictions
     # and target predictions. Also initialize your optimizer.
     # ===================================================== #
-    action_criterion = None
-    target_criterion = None
-    optimizer = None
+
+    action_criterion = torch.nn.CrossEntropyLoss()
+    target_criterion = torch.nn.CrossEntropyLoss()
+    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
 
     return action_criterion, target_criterion, optimizer
 
@@ -88,13 +144,15 @@ def train_epoch(
 
         # calculate the loss and train accuracy and perform backprop
         # NOTE: feel free to change the parameters to the model forward pass here + outputs
-        actions_out, targets_out = model(inputs, labels)
+        # actions_out, targets_out = model(inputs, labels)
+        # k =  model(inputs)
+        actions_out, targets_out = model(inputs)
 
         # calculate the action and target prediction loss
         # NOTE: we assume that labels is a tensor of size Bx2 where labels[:, 0] is the
         # action label and labels[:, 1] is the target label
-        action_loss = action_criterion(actions_out.squeeze(), labels[:, 0].long())
-        target_loss = target_criterion(targets_out.squeeze(), labels[:, 1].long())
+        action_loss = action_criterion(actions_out.squeeze(), labels[:, 0].float())
+        target_loss = target_criterion(targets_out.squeeze(), labels[:, 1].float())
 
         loss = action_loss + target_loss
 
@@ -114,8 +172,10 @@ def train_epoch(
         target_preds_ = targets_out.argmax(-1)
 
         # aggregate the batch predictions + labels
-        action_preds.extend(action_preds_.cpu().numpy())
-        target_preds.extend(target_preds_.cpu().numpy())
+        # action_preds.append(action_preds_.cpu().numpy().min())
+        # target_preds.append(target_preds_.cpu().numpy().min())
+        action_preds.extend(actions_out.cpu().detach().numpy())
+        target_preds.extend(targets_out.cpu().detach().numpy())
         action_labels.extend(labels[:, 0].cpu().numpy())
         target_labels.extend(labels[:, 1].cpu().numpy())
 
@@ -154,7 +214,7 @@ def train(args, model, loaders, optimizer, action_criterion, target_criterion, d
     # weights via backpropagation
     model.train()
 
-    for epoch in tqdm.tqdm(range(args.num_epochs)):
+    for epoch in tqdm.tqdm(range(int(args.num_epochs))):
 
         # train single epoch
         # returns loss for action and target prediction and accuracy
@@ -208,9 +268,31 @@ def train(args, model, loaders, optimizer, action_criterion, target_criterion, d
     # 4 figures for 1) training loss, 2) training accuracy,
     # 3) validation loss, 4) validation accuracy
     # ===================================================== #
+    import matplotlib.pyplot as plt
+    plt.plot(args.num_epochs, train_action_loss, 'g', label='Training action loss')
+    plt.plot(args.num_epochs, train_target_loss, 'b', label='Training target loss')
+    plt.plot(args.num_epochs, val_action_loss, 'r', label='Validation action loss')
+    plt.plot(args.num_epochs, val_target_loss, 'y', label='Validation target loss')
+    plt.title('Training and Validation loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.savefig("Loss.png")
+    plt.clf()
+    plt.plot(args.num_empochs, train_action_acc, 'g', label='Training action accuracy')
+    plt.plot(args.num_empochs, train_target_acc, 'b', label='Training target accuracy')
+    plt.plot(args.num_empochs, val_action_acc, 'g', label='Validation action accuracy')
+    plt.plot(args.num_empochs, val_target_acc, 'g', label='Validation target accuracy')
+    plt.title('Training and Validation accuracy')
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy')
+    plt.legend()
+    plt.savefig("Accuracy.png")
 
 
 def main(args):
+    max_epochs = args.num_epochs
+    embedding_dim = args.emb_dim
     device = get_device(args.force_cpu)
 
     # get dataloaders
@@ -218,7 +300,7 @@ def main(args):
     loaders = {"train": train_loader, "val": val_loader}
 
     # build model
-    model = setup_model(args, maps, device)
+    model = setup_model(args, maps, device, embedding_dim)
     print(model)
 
     # get optimizer and loss functions
@@ -255,6 +337,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--val_every", default=5, help="number of epochs between every eval loop"
     )
+    parser.add_argument("--voc_k", type=int, help="vocabulary size", required=True)
+    parser.add_argument("--emb_dim", type=int, help="embedding dimension", required=True)
+
 
     # ================== TODO: CODE HERE ================== #
     # Task (optional): Add any additional command line
