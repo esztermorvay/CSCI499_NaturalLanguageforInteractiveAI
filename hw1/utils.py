@@ -143,4 +143,6 @@ def encode_data(data, v2i, seq_len, a2i, t2i):
     print("INFO: encoded %d instances without regard to order" % idx)
     y = np.array(temp_y)
     x = np.array(temp_x, dtype=np.int32)
+    print(x)
+    print(y)
     return x, y

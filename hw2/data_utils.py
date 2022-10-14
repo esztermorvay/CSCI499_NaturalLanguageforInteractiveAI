@@ -2,10 +2,14 @@ import os
 import re
 import json
 import gensim
+import torch
 import tqdm
 import numpy as np
 from collections import Counter
 from spacy.lang.en import English
+import random
+
+from torch.utils.data import TensorDataset
 
 
 def process_book_dir(d, max_per_book=None):
@@ -122,8 +126,13 @@ def save_word2vec_format(fname, model, i2v):
                 )
             )
 
-
+# x is the tensor of frequency of each word (its encoding) in the given line
+# x has len seq_len (830) number of words in each line
+# y is the length of each corresponding line of x to the index of y), i.e. the number of words in the line (not encoded as 0)
 def encode_data(data, v2i, seq_len):
+    print(v2i["<unk>"])
+    print(v2i["<end>"])
+    print(seq_len)
     num_insts = sum([len(ep) for ep in data])
     x = np.zeros((num_insts, seq_len), dtype=np.int32)
     lens = np.zeros((num_insts, 1), dtype=np.int32)
@@ -157,5 +166,36 @@ def encode_data(data, v2i, seq_len):
         % (n_early_cutoff, seq_len)
     )
     print("INFO: encoded %d sentences without regard to order" % idx)
-
+    print(len(x[0]))
+    print(len(x))
+    print(len(lens))
     return x, lens
+
+# context is x, target word is y
+def train_val_split(encoded_sentences, lens):
+    # iterate thru every line and word, and considering that word as target randomly assign it to either train or val
+    train_x = []
+    train_y = []
+    test_x = []
+    test_y = []
+    for i in range(0,len(lens)):
+        count = lens[i][0]
+        # do not include start and end tokens
+        for j in range(1,count):
+            word = encoded_sentences[count][j]
+            context = [encoded_sentences[count][j-1], encoded_sentences[count][j+1]]
+            val = random.randint(1,10)
+            # if it's <=7, put in train set
+            if val <= 7:
+                train_x.append(context)
+                train_y.append(word)
+            else:
+                test_x.append(context)
+                test_y.append(word)
+    train_np_x = np.array(train_x)
+    train_np_y = np.array(train_y)
+    train_dataset = TensorDataset(torch.from_numpy(train_np_x), torch.from_numpy(train_np_y))
+    test_np_x = np.array(test_x)
+    test_np_y = np.array(test_y)
+    val_dataset = TensorDataset(torch.from_numpy(test_np_x), torch.from_numpy(test_np_y))
+    return train_dataset, val_dataset

@@ -3,12 +3,15 @@ import os
 import tqdm
 import torch
 from sklearn.metrics import accuracy_score
+from torch.utils.data import DataLoader
 
 from eval_utils import downstream_validation
 import utils
 import data_utils
+from model import CBOW
 
-
+context_size = 2
+minibatch_size = 200
 def setup_dataloader(args):
     """
     return:
@@ -32,6 +35,8 @@ def setup_dataloader(args):
         vocab_to_index,
         suggested_padding_len,
     )
+    print(encoded_sentences)
+    print(lens)
 
     # ================== TODO: CODE HERE ================== #
     # Task: Given the tokenized and encoded text, you need to
@@ -44,13 +49,13 @@ def setup_dataloader(args):
     # (you can use utils functions) and create respective
     # dataloaders.
     # ===================================================== #
+    train_dataset, val_dataset = data_utils.train_val_split(encoded_sentences, lens)
+    train_loader = DataLoader(train_dataset, shuffle=True, batch_size=minibatch_size)
+    val_loader = DataLoader(val_dataset, shuffle=True, batch_size=minibatch_size)
+    return train_loader, val_loader, index_to_vocab
 
-    train_loader = None
-    val_loader = None
-    return train_loader, val_loader
 
-
-def setup_model(args):
+def setup_model(embedding_dim, vocab_size, context_size):
     """
     return:
         - model: YourOwnModelClass
@@ -58,7 +63,7 @@ def setup_model(args):
     # ================== TODO: CODE HERE ================== #
     # Task: Initialize your CBOW or Skip-Gram model.
     # ===================================================== #
-    model = None
+    model = CBOW(embedding_dim, vocab_size, context_size)
     return model
 
 
@@ -101,9 +106,11 @@ def train_epoch(
 
         # calculate the loss and train accuracy and perform backprop
         # NOTE: feel free to change the parameters to the model forward pass here + outputs
-        pred_logits = model(inputs, labels)
+        # pred_logits = model(inputs, labels)
+        pred_logits = model(inputs)
 
         # calculate prediction loss
+        print(pred_logits)
         loss = criterion(pred_logits.squeeze(), labels)
 
         # step optimizer and compute gradients during training
@@ -158,11 +165,11 @@ def main(args):
         return
 
     # get dataloaders
-    train_loader, val_loader = setup_dataloader(args)
+    train_loader, val_loader, i2v = setup_dataloader(args)
     loaders = {"train": train_loader, "val": val_loader}
 
     # build model
-    model = setup_model(args)
+    model = setup_model(128, 3000,2)
     print(model)
 
     # get optimizer
