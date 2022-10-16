@@ -13,22 +13,21 @@ class CBOW(torch.nn.Module):
         # linear layer
         self.linear_layer = torch.nn.Linear(self.embedding_dim, self.vocab_size)
 
-    # inputs should be a list of context
+    # inputs should be a list of contexts [list of words]
     def forward(self, inputs):
         # print("inputs ")
         # print(inputs)
-        embeddings = self.embedding_layer(inputs)
-        # get the sum of the context words embeddings
-        sum_layer = sum(embeddings)
-        # use linear layer to get the target
-        target = self.linear_layer(sum_layer)
+        # embeddings = self.embedding_layer(inputs)
+        # # get the sum of the context words embeddings
+        # sum_layer = sum(embeddings)
+        # # use linear layer to get the target
+        # target = self.linear_layer(sum_layer)
+        # return target
+        sums = torch.zeros(len(inputs), self.embedding_dim)
+        for i, context in enumerate(inputs):
+            embeddings = self.embedding_layer(context)
+            sums[i] = (sum(embeddings))
+        # print("SUMS LENGTH ", len(sums))
+        # sum_layer = torch.FloatTensor(sums)
+        target = self.linear_layer(sums)
         return target
-        # outputs = []
-        # for i in inputs:
-        #     embeddings = self.embedding_layer(i)
-        #     # get the sum of the context words embeddings
-        #     sum_layer = sum(embeddings)
-        #     # use linear layer to get the target
-        #     target = self.linear_layer(sum_layer)
-        #     outputs.append(target)
-        # return outputs

@@ -1,0 +1,30 @@
+Loading vectors from file 'outputs/word_vec.txt'...
+... done loading vectors 
+Evaluating downstream performance on analogy task over 1309 analogies...
+...Total performance across all 1309 analogies: 0.0000 (Exact); 0.0024 (MRR); 418 (MR)
+...Analogy performance across 969 "sem" relation types: 0.0000 (Exact); 0.0027 (MRR); 373 (MR)
+	relation	N	exact	MRR	MR
+	capitals	1	0.0000	0.0000	inf
+	binary_gender	12	0.0000	0.0021	476
+	antonym	54	0.0000	0.0051	195
+	member	4	0.0000	0.0000	inf
+	hypernomy	542	0.0000	0.0020	506
+	similar	117	0.0000	0.0035	289
+	partof	29	0.0000	0.0010	1002
+	instanceof	9	0.0000	0.0006	1609
+	derivedfrom	133	0.0000	0.0017	604
+	hascontext	32	0.0000	0.0170	59
+	relatedto	10	0.0000	0.0003	3315
+	attributeof	11	0.0000	0.0007	1386
+	causes	6	0.0000	0.0013	744
+	entails	9	0.0000	0.0001	8640
+...Analogy performance across 340 "syn" relation types: 0.0000 (Exact); 0.0016 (MRR); 635 (MR)
+	relation	N	exact	MRR	MR
+	adj_adv	22	0.0000	0.0008	1263
+	comparative	7	0.0000	0.0003	3913
+	superlative	3	0.0000	0.0003	2868
+	present_participle	62	0.0000	0.0010	1025
+	denonym	2	0.0000	0.0000	inf
+	past_tense	64	0.0000	0.0024	419
+	plural_nouns	107	0.0000	0.0011	928
+	plural_verbs	73	0.0000	0.0026	391

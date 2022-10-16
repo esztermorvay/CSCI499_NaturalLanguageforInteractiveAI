@@ -10,8 +10,7 @@ import utils
 import data_utils
 from model import CBOW
 
-context_size = 2
-minibatch_size = 200
+
 def setup_dataloader(args):
     """
     return:
@@ -35,8 +34,8 @@ def setup_dataloader(args):
         vocab_to_index,
         suggested_padding_len,
     )
-    print(encoded_sentences)
-    print(lens)
+    # print(encoded_sentences)
+    # print(lens)
 
     # ================== TODO: CODE HERE ================== #
     # Task: Given the tokenized and encoded text, you need to
@@ -49,9 +48,12 @@ def setup_dataloader(args):
     # (you can use utils functions) and create respective
     # dataloaders.
     # ===================================================== #
-    train_dataset, val_dataset = data_utils.train_val_split(encoded_sentences, lens)
-    train_loader = DataLoader(train_dataset, shuffle=True, batch_size=minibatch_size)
-    val_loader = DataLoader(val_dataset, shuffle=True, batch_size=minibatch_size)
+    spill = False
+    if args.spill:
+        spill = True
+    train_dataset, val_dataset = data_utils.train_val_split(encoded_sentences, lens, context_size = args.context_size)
+    train_loader = DataLoader(train_dataset, shuffle=True, batch_size=args.batch_size)
+    val_loader = DataLoader(val_dataset, shuffle=True, batch_size=args.batch_size)
     return train_loader, val_loader, index_to_vocab
 
 
@@ -78,7 +80,9 @@ def setup_optimizer(args, model):
     # Also initialize your optimizer.
     # ===================================================== #
     criterion = None
-    optimizer = None
+    if type(model) == CBOW:
+        criterion = torch.nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters())
     return criterion, optimizer
 
 
@@ -110,7 +114,8 @@ def train_epoch(
         pred_logits = model(inputs)
 
         # calculate prediction loss
-        print(pred_logits)
+        # print(pred_logits)
+        # print(criterion)
         loss = criterion(pred_logits.squeeze(), labels)
 
         # step optimizer and compute gradients during training
@@ -153,15 +158,24 @@ def validate(args, model, loader, optimizer, criterion, device):
 
 
 def main(args):
+    context_size = 2
+    minibatch_size = 32
+    vocab_size = 3000
+    embedding_dim = 128
     device = utils.get_device(args.force_cpu)
-
+    spillover = False
     # load analogies for downstream eval
     external_val_analogies = utils.read_analogies(args.analogies_fn)
-
+    context_size = args.context_size
+    minibatch_size = args.batch_size
+    vocab_size = args.vocab_size
+    embedding_dim = args.embedding_dim
+    if args.spill:
+        spillover = True
     if args.downstream_eval:
-        word_vec_file = os.path.join(args.outputs_dir, args.word_vector_fn)
+        word_vec_file = os.path.join(args.output_dir, args.word_vector_fn)
         assert os.path.exists(word_vec_file), "need to train the word vecs first!"
-        downstream_validation(word_vec_file, external_val_analogies)
+        downstream_validation(word_vec_file, external_val_analogies, context_size, spill=spillover)
         return
 
     # get dataloaders
@@ -169,12 +183,15 @@ def main(args):
     loaders = {"train": train_loader, "val": val_loader}
 
     # build model
-    model = setup_model(128, 3000,2)
+    model = setup_model(embedding_dim, vocab_size, context_size)
     print(model)
 
     # get optimizer
     criterion, optimizer = setup_optimizer(args, model)
-
+    train_losses =[]
+    train_accs = []
+    val_losses = []
+    val_accs = []
     for epoch in range(args.num_epochs):
         # train model for a single epoch
         print(f"Epoch {epoch}")
@@ -186,7 +203,8 @@ def main(args):
             criterion,
             device,
         )
-
+        train_losses.append(train_loss)
+        train_accs.append(train_acc)
         print(f"train loss : {train_loss} | train acc: {train_acc}")
 
         if epoch % args.val_every == 0:
@@ -198,6 +216,8 @@ def main(args):
                 criterion,
                 device,
             )
+            val_losses.append(val_loss)
+            val_accs.append(val_acc)
             print(f"val loss : {val_loss} | val acc: {val_acc}")
 
             # ======================= NOTE ======================== #
@@ -210,12 +230,12 @@ def main(args):
             # ===================================================== #
 
             # save word vectors
-            word_vec_file = os.path.join(args.outputs_dir, args.word_vector_fn)
+            word_vec_file = os.path.join(args.output_dir, args.word_vector_fn)
             print("saving word vec to ", word_vec_file)
             utils.save_word2vec_format(word_vec_file, model, i2v)
 
             # evaluate learned embeddings on a downstream task
-            downstream_validation(word_vec_file, external_val_analogies)
+            # downstream_validation(word_vec_file, external_val_analogies, context_size)
 
 
         if epoch % args.save_every == 0:
@@ -223,6 +243,8 @@ def main(args):
             print("saving model to ", ckpt_file)
             torch.save(model, ckpt_file)
 
+    # plotting training loss and stuff
+    data_utils.plot_metrics(train_losses, train_accs, val_losses, val_accs, context_size, spilling=spillover)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -269,11 +291,29 @@ if __name__ == "__main__":
         default=5,
         type=int,
         help="number of epochs between saving model checkpoint",
-    )
+    ),
+
     # ================== TODO: CODE HERE ================== #
     # Task (optional): Add any additional command line
     # parameters you may need here
     # ===================================================== #
+    parser.add_argument(
+        "--context_size",
+        default=2,
+        type=int,
+        help="context window size",
+    ),
+    parser.add_argument(
+        "--embedding_dim",
+        default=128,
+        type=int,
+        help="embedding dim",
+    ),
+    parser.add_argument(
+        "--spill",
+        action="store_true",
+        help="use a spillover context window between sentence lines",
+    )
 
     args = parser.parse_args()
     main(args)

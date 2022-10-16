@@ -20,7 +20,7 @@ def save_word2vec_format(fname, model, i2v):
         # store in sorted order: most frequent words at the top
         for index in tqdm.tqdm(range(len(i2v))):
             word = i2v[index]
-            row = model.embed.weight.data[index]
+            row = model.embedding_layer.weight.data[index]
             fout.write(
                 gensim.utils.to_utf8(
                     "%s %s\n" % (word, " ".join("%f" % val for val in row))

@@ -8,6 +8,7 @@ import numpy as np
 from collections import Counter
 from spacy.lang.en import English
 import random
+import matplotlib.pyplot as plt
 
 from torch.utils.data import TensorDataset
 
@@ -130,10 +131,9 @@ def save_word2vec_format(fname, model, i2v):
 # x has len seq_len (830) number of words in each line
 # y is the length of each corresponding line of x to the index of y), i.e. the number of words in the line (not encoded as 0)
 def encode_data(data, v2i, seq_len):
-    print(v2i["<unk>"])
-    print(v2i["<end>"])
-    print(seq_len)
-    num_insts = sum([len(ep) for ep in data])
+
+    num_insts = len(data)
+    # num_insts = sum([len(ep) for ep in data])
     x = np.zeros((num_insts, seq_len), dtype=np.int32)
     lens = np.zeros((num_insts, 1), dtype=np.int32)
 
@@ -172,7 +172,7 @@ def encode_data(data, v2i, seq_len):
     return x, lens
 
 # context is x, target word is y
-def train_val_split(encoded_sentences, lens):
+def train_val_split(encoded_sentences, lens, context_size=2):
     # iterate thru every line and word, and considering that word as target randomly assign it to either train or val
     train_x = []
     train_y = []
@@ -183,7 +183,24 @@ def train_val_split(encoded_sentences, lens):
         # do not include start and end tokens
         for j in range(1,count):
             word = encoded_sentences[count][j]
-            context = [encoded_sentences[count][j-1], encoded_sentences[count][j+1]]
+            context = []
+            if context_size == 2:
+                context = [encoded_sentences[count][j-1], encoded_sentences[count][j+1]]
+            else:
+                # context = 4
+                half = context_size/2
+                if j-2 < 0:
+                    # append unk if out of bounds and not spillover
+                    context.append(0)
+                else:
+                    context.append(encoded_sentences[count][j-2])
+                context.append(encoded_sentences[count][j-1])
+                context.append(encoded_sentences[count][j+1])
+                if j + 2 >= count:
+                    context.append(0)
+                else:
+                    context.append(encoded_sentences[count][j+2])
+
             val = random.randint(1,10)
             # if it's <=7, put in train set
             if val <= 7:
@@ -199,3 +216,33 @@ def train_val_split(encoded_sentences, lens):
     test_np_y = np.array(test_y)
     val_dataset = TensorDataset(torch.from_numpy(test_np_x), torch.from_numpy(test_np_y))
     return train_dataset, val_dataset
+
+# lists of values, save_dir should correspond to a context window size
+def plot_metrics(train_loss, train_acc, val_loss, val_acc, context_size, spilling=False):
+    # plot train_loss and val_loss
+    plt.figure()
+    plt.title("Train And Val Loss for Context Window Size " + str(context_size))
+    plt.plot(train_loss, label="train")
+    plt.plot(val_loss, label="val")
+    plt.ylabel("loss")
+    plt.xlabel("epochs")
+    plt.legend()
+    save_name = f"loss_for_context_window_size {context_size}"
+    if spilling:
+        save_name += " with_spilling"
+    plt.savefig("graphs/" + save_name)
+    plt.clf()
+    # plot train_acc and val_acc
+    plt.figure()
+    plt.title("Train And Val Accuracy for Context Window Size " + str(context_size))
+    plt.plot(train_acc, label="train")
+    plt.plot(val_acc, label="val")
+    plt.ylabel("accuracy")
+    plt.xlabel("epochs")
+    plt.legend()
+    save_name = f"accuracy_for_context_window_size {context_size}"
+    if spilling:
+        save_name += " with_spilling"
+    save_name += ".png"
+    plt.savefig("graphs/" + save_name)
+    plt.clf()
